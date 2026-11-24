@@ -59,7 +59,8 @@ console.log('dsh-fleet selftest')
   check('shipped catalog has the five runnable-agent slots + two services', DEFAULT_AGENTS.length === 7, DEFAULT_AGENTS.length)
   check('override replaces only the fields it sets', table.get('opencode').args.join(' ') === 'run {prompt}' && table.get('opencode').adapter === 'cli')
   check('disabled ids are dropped', !stubAgents().has('claude'))
-  check('service agents stay available without a binary', buildAgentTable().get('cyberstrike').adapter === 'service')
+  check('cyberstrike 走 MCP 适配器并带驱动', buildAgentTable().get('cyberstrike').adapter === 'mcp' && Boolean(buildAgentTable().get('cyberstrike').driver))
+  check('artex 走 HTTP 适配器并带驱动', buildAgentTable().get('artex').adapter === 'http' && Boolean(buildAgentTable().get('artex').driver))
 }
 
 // --- brief -----------------------------------------------------------------
@@ -184,6 +185,73 @@ console.log('dsh-fleet selftest')
   const tail = tailFile(join(runsDir, orphan.id, 'out.log'), 2)
   check('tailFile returns the last lines of a log', tail.includes('line-5') && !tail.includes('line-1'), JSON.stringify(tail))
   fleet.dispose()
+}
+
+// --- remote adapters (mcp / http) -----------------------------------------
+{
+  console.log('remote adapters')
+  const { spawn } = await import('node:child_process')
+  const stubPath = new URL('./stub-mcp-server.mjs', import.meta.url).pathname
+  const stub = spawn(process.execPath, [stubPath], { env: { ...process.env, STUB_POLLS: '2' }, stdio: ['ignore', 'pipe', 'inherit'] })
+  const port = await new Promise((resolve, reject) => {
+    let buffer = ''
+    const timer = setTimeout(() => reject(new Error('stub 平台没起来')), 8000)
+    stub.stdout.on('data', (chunk) => {
+      buffer += String(chunk)
+      const match = buffer.match(/PORT=(\d+)/)
+      if (match) {
+        clearTimeout(timer)
+        resolve(Number(match[1]))
+      }
+    })
+  })
+  const base = 'http://127.0.0.1:' + String(port)
+
+  const dir = freshDir('remote')
+  writeFileSync(join(dir, 'secrets.json'), JSON.stringify({
+    stub: { mcpToken: 'stub-token', username: 'ARTEX', password: 'stub-password' },
+  }))
+
+  const remoteAgents = buildAgentTable([
+    {
+      id: 'stub-mcp',
+      adapter: 'mcp',
+      endpoint: base + '/mcp',
+      identity: 'stub',
+      spec: {
+        headers: { 'X-MCP-Token': '@stub.mcpToken' },
+        create: { tool: 'batch_task_create', toText: 'tasks', args: { title: 'stub {runId}' } },
+        start: { tool: 'batch_task_start' },
+        poll: { tool: 'batch_task_get', intervalSec: 1, doneQueueStatuses: ['completed'], failQueueStatuses: ['failed'] },
+      },
+    },
+    {
+      id: 'stub-http',
+      adapter: 'http',
+      endpoint: base,
+      identity: 'stub',
+      spec: {
+        login: { path: '/api/auth/login', body: { username: '@stub.username', password: '@stub.password' }, tokenPath: 'token' },
+        create: { path: '/api/tasks', body: { description: 'dsh-fleet {runId}', goal: '{brief}' }, idPath: 'id' },
+        poll: { path: '/api/tasks/{id}', statePath: 'status', intervalSec: 1, doneStatuses: ['completed'], failStatuses: ['failed'] },
+        outcome: { path: '/api/tasks/{id}/outcome' },
+      },
+    },
+  ], ['claude', 'codex', 'cyberstrike', 'artex'])
+
+  const fleet = new Fleet({ dataDir: dir, agents: remoteAgents, pollMs: 100 })
+  const mcpRun = fleet.dispatch({ agentId: 'stub-mcp', goal: '平台任务', brief: (id) => 'goal 平台任务 run ' + id, cwd: tmpdir() })
+  const httpRun = fleet.dispatch({ agentId: 'stub-http', goal: '平台任务', brief: (id) => 'goal 平台任务 run ' + id, cwd: tmpdir() })
+  await fleet.waitFor([mcpRun.runId, httpRun.runId], 40_000)
+  const mcpView = fleet.view(mcpRun.runId, 80)
+  const httpView = fleet.view(httpRun.runId, 80)
+  check('mcp 适配器把一个队列跑成一个 run', mcpView.state === 'done', mcpView.state + ' exit=' + String(mcpView.exitCode) + ' ' + String(mcpView.tail).slice(-300))
+  check('mcp 驱动读到队列 id 并落地结论', mcpView.tail.includes('队列 q-stub') && mcpView.tail.includes('## 结论'))
+  check('http 适配器登录→建任务→轮询→取结果', httpView.state === 'done', httpView.state + ' exit=' + String(httpView.exitCode) + ' ' + String(httpView.tail).slice(-300))
+  check('http 驱动带上平台任务 id 与结果', httpView.tail.includes('任务 #7') && httpView.tail.includes('stub outcome'))
+  check('远端 run 不被误判 suspect', mcpView.suspect.length === 0 && httpView.suspect.length === 0)
+  fleet.dispose()
+  stub.kill('SIGTERM')
 }
 
 // --- retention -------------------------------------------------------------

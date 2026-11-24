@@ -12,6 +12,7 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { buildAgentTable } from './lib/agents.js'
+import { createFileLogger } from './lib/log.js'
 import { Fleet } from './lib/runner.js'
 import { registerFleetTools } from './lib/tools.js'
 
@@ -83,6 +84,26 @@ export function normalizeConfig(config = {}) {
 export function apply(ctx, config = {}) {
   const resolved = normalizeConfig(config)
   const agents = buildAgentTable(resolved.agents, resolved.disabled)
+
+  // Ops log: a real file next to the runs, mirrored to the Host logger when it
+  // lands somewhere visible. This profile's ctx.logger does not.
+  const sink = createFileLogger({ dir: resolved.dataDir })
+  const logger = {
+    path: sink.path,
+    info: (message) => {
+      sink.info(message)
+      ctx.logger?.info?.(message)
+    },
+    warn: (message) => {
+      sink.warn(message)
+      ctx.logger?.warn?.(message)
+    },
+    error: (message) => {
+      sink.error(message)
+      ctx.logger?.error?.(message)
+    },
+  }
+
   const fleet = new Fleet({
     dataDir: resolved.dataDir,
     agents,
@@ -91,14 +112,18 @@ export function apply(ctx, config = {}) {
     retryLimit: resolved.retryLimit,
     pollMs: resolved.pollMs,
     keepRuns: resolved.keepRuns,
-    logger: ctx.logger,
+    logger,
   })
+  fleet.logPath = sink.path
+  fleet.secretsPath = join(resolved.dataDir, 'secrets.json')
 
   const runnable = [...agents.values()].filter(agent => agent.adapter !== 'service' && agent.available).map(agent => agent.id)
-  ctx.logger?.info?.(`dsh-fleet: 已加载 ${agents.size} 个 agent（可用：${runnable.join(', ') || '无'}），运行目录 ${fleet.runsDir}`)
+  const remote = [...agents.values()].filter(agent => agent.driver).map(agent => `${agent.id}(${agent.adapter})`)
+  logger.info(`已加载 ${agents.size} 个 agent；可派：${runnable.join(', ') || '无'}${remote.length ? `；远端适配器：${remote.join(', ')}` : ''}`)
+  logger.info(`运行目录 ${fleet.runsDir}；日志 ${sink.path}；凭据 ${fleet.secretsPath}（可选）`)
 
   ctx.effect(() => {
-    const disposers = registerFleetTools({ tools: ctx.tools }, fleet, agents, ctx.logger)
+    const disposers = registerFleetTools({ tools: ctx.tools }, fleet, agents, logger)
     return () => {
       for (const dispose of disposers) dispose()
       fleet.dispose()
@@ -114,6 +139,7 @@ export function apply(ctx, config = {}) {
           '## 军团（外部 agent 调度）',
           'fleet_* 工具可以把活派给外部执行型 agent（opencode、hermes、claude、codex…）在后台并行干活：',
           'fleet_agents（花名册/探活）→ fleet_dispatch（派活，返回 runId）→ fleet_status（进度，可内联等待）→ fleet_result（取交付）→ fleet_stop（取消）。',
+          'cli 型 agent 直接跑命令行；mcp/http 型（cyberstrike、artex）由协议驱动把一个平台队列/任务当成一个 run 来监管，凭据从 secrets.json 读。',
           '规则：',
           '- 用户给出方向/目标而任务规模明显超过一轮对话时，先 fleet_agents 确认能用的 agent，再拆成互不重叠的分工并行派出去；小任务自己做完更快，不要为了派而派。',
           '- goal 传用户原话，不要压缩成口号；拆解放在 assignments 里，每个 worker 一份。',

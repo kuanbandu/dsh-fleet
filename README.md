@@ -57,12 +57,18 @@ dsh 会话 ── fleet_status / fleet_result 收结果 → 综合成给客户�
 ## 3. 目录布局
 
 ```
-$DSH_HOME/plugin-data/dsh-fleet/runs/
-  r-20261124-123705-08e6/
-    brief.md     派给它的完整简报
-    out.log      stdout+stderr 全量（含每次 attempt 头）
-    state.json   状态机：queued/running/done/failed/timeout/stopped/lost
+$DSH_HOME/plugin-data/dsh-fleet/
+  fleet.log      插件自身运维日志（激活、接管、清理、停止；2MiB 轮转一份）
+  secrets.json   远端适配器凭据（可选，600）：{"cyberstrike":{"mcpToken":"…"},"artex":{"username":"ARTEX","password":"…"}}
+  runs/
+    r-20261124-123705-08e6/
+      brief.md     派给它的完整简报
+      out.log      stdout+stderr 全量（含每次 attempt 头）
+      state.json   状态机：queued/running/done/failed/timeout/stopped/lost
 ```
+
+> `ctx.logger` 在这个 profile 里没有可观测的落点（journal 和 `$DSH_HOME/logs` 都收不到
+> `info` 级插件日志），所以插件自己写 `fleet.log`，同时仍然镜像给 Host logger。
 
 ## 4. 配置：接一个自己的 agent
 
@@ -90,6 +96,33 @@ $DSH_HOME/plugin-data/dsh-fleet/runs/
             command: /home/kali/.opencode/bin/opencode   # 钉住二进制路径（宿主 PATH 里没有它时必需）
 ```
 
+远端适配器（`mcp` / `http`）的配置长这样——平台差异全在 spec 里，驱动只有两个：
+
+```yaml
+          - id: cyberstrike
+            adapter: mcp
+            endpoint: http://127.0.0.1:8081/mcp
+            identity: cyberstrike          # secrets.json 里的段名
+            spec:
+              headers: { X-MCP-Token: '@cyberstrike.mcpToken' }
+              create: { tool: batch_task_create, toText: tasks, args: { execute_now: false, concurrency: 1 } }
+              start:  { tool: batch_task_start }
+              poll:   { tool: batch_task_get, intervalSec: 5, doneQueueStatuses: [completed] }
+          - id: artex
+            adapter: http
+            endpoint: http://127.0.0.1:8787
+            identity: artex
+            spec:
+              login: { path: /api/auth/login, body: { username: '@artex.username', password: '@artex.password' }, tokenPath: token }
+              create: { path: /api/tasks, body: { description: 'dsh-fleet {runId}', goal: '{brief}' }, idPath: id }
+              poll:   { path: /api/tasks/{id}, statePath: status, intervalSec: 10 }
+              outcome: { path: '/api/tasks/{id}/outcome' }
+```
+
+`@段名.字段` 从 `secrets.json` 取值，不写进仓库；`{brief}` / `{runId}` / `{id}` 是占位符。
+远端 run 仍是一个受管子进程（驱动进程），所以队列、槽位、截止时间、SIGTERM、日志、
+suspect 扫描全部照样生效。
+
 占位符规则：
 
 - `args` 里出现 `{prompt}` 或 `{brief}` → 简报走参数（CLI 友好）；
@@ -104,11 +137,12 @@ $DSH_HOME/plugin-data/dsh-fleet/runs/
 | `hermes` | CLI `-z` | ✅ v0.22.1+682，自检任务 49s 完成，结论/证据/未完成齐全。`--version` 慢（>25s），探活给 30s |
 | `hermes-agent` | CLI `--query` | ✅ 补上 `--model` 后 26s 正常回话；**之前不配模型时它 exit 0 静默失败**（`Missing model`），见下方已知问题 |
 | `claude` / `codex` | CLI | 本机未安装（装上即可用，无需改插件） |
-| `cyberstrike` | **服务** `http://127.0.0.1:8081` | ✅ 探活通；它是 Go 平台 + MCP 工具面，不是 prompt CLI |
-| `artex` | **服务** `http://127.0.0.1:8787` | ✅ 探活 200；planner/worker 平台，走它的 HTTP API |
+| `cyberstrike` | **MCP 适配器** `http://127.0.0.1:8081/mcp` | ✅ 真实握手（CyberStrikeAI 1.0.0）→ 建队列 → 轮询 → 解析队列 id；探测用的队列已删除 |
+| `artex` | **HTTP 适配器** `http://127.0.0.1:8787` | 驱动已实现（登录→建任务→轮询→取结果），stub 平台跑通；**真跑需要 `secrets.json` 里的 ARTEX 密码** |
 
-> 关于 CyberStrike / ARTEX：它们不是"给一段提示词就完事"的 CLI，硬塞进 `cli` 适配器只会造假。
-> 正确的接法是**适配器**（见路线图第二阶段），而不是把它们当 opencode 用。
+> 关于 CyberStrike / ARTEX：它们不是"给一段提示词就完事"的 CLI。现在各自有一个协议驱动，
+> 把一个平台队列/任务当成一个 run 来监管；**平台侧的队列/任务会留在平台上**，便于复查，
+> 也意味着它们消耗真实算力——派之前先确认授权范围。
 
 ## 6. 已知问题与限制
 
@@ -124,22 +158,27 @@ $DSH_HOME/plugin-data/dsh-fleet/runs/
    非 git 目录，或放进容器。
 4. **探活只是提示。** `hermes --version` 启动慢，可能 `ready:false` 而实际可派；二进制存在
    （`available:true`）就允许 dispatch。
-5. **service 型 agent 只能探活不能 dispatch。** `cyberstrike`（HTTP 404 = 服务活着）、
-   `artex`（HTTP 200）要等阶段二的 MCP/HTTP 适配器。
-6. **运行记录有上限。** `keepRuns`（默认 50）之外的历史 run 在激活时连同日志一起删掉。
+5. **远端适配器的边界。** MCP 侧：队列建在平台上，fleet 只负责派与收，平台 UI 仍可看到并干预；
+   HTTP 侧：ARTEX 需要 `secrets.json` 里的真实密码（用户名固定 `ARTEX`），没配会在驱动里报
+   `secrets.json 缺少 artex.password`。两者都**不会**自动清理平台侧任务——超时退出时队列可能还在跑。
+6. **插件日志在 `fleet.log`，不在 journal。** 排障先看 `$DSH_HOME/plugin-data/dsh-fleet/fleet.log`。
+7. **运行记录有上限。** `keepRuns`（默认 50）之外的历史 run 在激活时连同日志一起删掉。
+8. **重启只认「新 token URL 返回 200」。** `dsh-restart.sh` 已改成先停崩溃循环、再清掉占用
+   `:3080` 的非单元进程、然后起单元并验证 URL；`manual` 模式把端口交还给手工启动，
+   `dry-run` 只看不改。别再让手工进程和单元同时抢 `:3080`。
 
 ## 7. 自测
 
 ```bash
-node scripts/selftest.mjs     # 34 项：目录/简报/闭环/槽位/截止/停止/重试/重启接管/suspect 识别/记录保留
+node scripts/selftest.mjs     # 40 项：目录/简报/闭环/槽位/截止/停止/重试/重启接管/suspect 识别/记录保留/MCP 与 HTTP 适配器
 ```
 
 自测用 `scripts/stub-agent.mjs` 当假 worker，不花一个 token，也不碰任何外部 CLI。
 
 ## 8. 路线图
 
-- **阶段二 · 适配器**：`mcp`（CyberStrike 的 `batch_task_create/start/get`，`X-MCP-Token`）与
-  `http`（ARTEX 的提交接口），让"平台型 agent"也能进同一个 `fleet_dispatch`。
+- ~~**阶段二 · 适配器**~~ 已完成：`mcp`（CyberStrike `batch_task_create/start/get`）与
+  `http`（ARTEX 登录+建任务+轮询+取结果），平台型 agent 现在和 CLI 型走同一个 `fleet_dispatch`。
 - **阶段二 · tmux 适配器**：给只提供交互式 TUI 的 CLI 用（sapper 的做法：`send-keys` 打字 + 抓窗格）。
 - **阶段三 · 共享记忆**：sapper 的分层事实图（标题/摘要/证据三级）。dsh 这里的对应物是
   `runs/<id>/` 的简报与结论，天然可以按 `goal` 聚合，先别急着上数据库。

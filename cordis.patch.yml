@@ -1,0 +1,49 @@
+# dsh-fleet：把 Harness 变成指挥官
+#
+# 这一行插入 Host 插件：注册 fleet_agents / fleet_dispatch / fleet_status /
+# fleet_result / fleet_stop 五个工具，加一段系统提示，并在
+# $DSH_HOME/plugin-data/dsh-fleet/runs/ 下维护每个 worker 的运行目录。
+#
+# 所有字段都可省略（省略即用默认值）。想接自己的 agent，复制一个 agents 行：
+#   agents:
+#     - id: my-agent
+#       command: /abs/path/to/cli
+#       args: ["--prompt", "{prompt}"]     # 或留空，brief 走 stdin
+#       timeoutSec: 900
+#       env: { MY_FLAG: "1" }
+- insert:
+    - id: dsh-fleet
+      name: dsh-fleet
+      config:
+        maxConcurrent: 4      # 同时跑几个 worker
+        timeoutSec: 1800      # 单个 worker 的默认截止时间（秒）
+        retryLimit: 0         # 失败自动重试次数（0 = 不重试）
+        systemPrompt: true    # 是否把军团使用说明注入系统提示
+        # disabled: [claude, codex]   # 不想让模型看到的花名册条目
+        #
+        # 下面两条把本机的二进制钉成绝对路径：宿主进程的 PATH 里没有
+        # ~/.opencode/bin 与 ~/.local/bin，裸名 spawn 会 ENOENT。
+        # 插件本身也会按 PATH + 常见 bin 目录解析绝对路径，钉死只是更确定。
+        agents:
+          - id: opencode
+            command: /home/kali/.opencode/bin/opencode
+          # legacy runner 不读 ~/.hermes/config.yaml，必须显式给 --model，
+          # 否则后端回 HTTP 400 "Missing model"（且退出码仍是 0，看起来像成功）。
+          # 模型 id 与 ~/.hermes/config.yaml 的 providers.models 保持一致。
+          - id: hermes-agent
+            command: /home/kali/.local/bin/hermes-agent
+            args:
+              - --query
+              - '{prompt}'
+              - --model
+              - 'cherryin/agent/deepseek-v3.2(free)'
+              - --max-turns
+              - '30'
+          - id: hermes
+            command: /home/kali/.local/bin/hermes
+          # service 型：探活必须用服务真正监听的协议。
+          # cyberstrike 是裸 HTTP（https://127.0.0.1:8081 会 fetch failed）。
+          - id: cyberstrike
+            endpoint: http://127.0.0.1:8081/
+          - id: artex
+            endpoint: http://127.0.0.1:8787/

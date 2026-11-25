@@ -7,10 +7,11 @@
  * on the first failure.
  */
 
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildAgentTable, buildBrief, DEFAULT_AGENTS } from '../lib/agents.js'
+import { parseTranscript, readAgentTranscript } from '../lib/transcript.js'
 import { Fleet, isAlive, tailFile } from '../lib/runner.js'
 
 const STUB = new URL('./stub-agent.mjs', import.meta.url).pathname
@@ -252,6 +253,33 @@ console.log('dsh-fleet selftest')
   check('远端 run 不被误判 suspect', mcpView.suspect.length === 0 && httpView.suspect.length === 0)
   fleet.dispose()
   stub.kill('SIGTERM')
+}
+
+// --- platform transcripts --------------------------------------------------
+{
+  console.log('transcripts')
+  const dir = freshDir('transcript')
+  const planner = join(dir, 'exp9-planner.jsonl')
+  const worker = join(dir, 'exp9-worker-i1.jsonl')
+  writeFileSync(planner, [
+    JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'plan it' }] } }),
+    JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '## 结论\n规划器第一版' }] } }),
+  ].join('\n'))
+  writeFileSync(worker, [
+    JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '## 结论\n执行器最终结论' }] } }),
+    JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'x' }] } }),
+  ].join('\n'))
+  // Deterministic order: the worker transcript is newer, so its text wins.
+  const now = Date.now() / 1000
+  utimesSync(planner, now - 10, now - 10)
+  utimesSync(worker, now, now)
+
+  const read = readAgentTranscript({ dir, pattern: 'exp{id}-*.jsonl', id: '9' })
+  check('transcript: 取到最后一个 assistant 文本', read.found && read.text.includes('执行器最终结论'), read.text)
+  check('transcript: 只匹配该任务的文件', read.files.length === 2, read.files.join(','))
+  check('transcript: 无匹配时安全返回', !readAgentTranscript({ dir, pattern: 'exp{id}-*.jsonl', id: '10' }).found)
+  check('transcript: 目录不存在时安全返回', !readAgentTranscript({ dir: '/nonexistent-dir', pattern: '*', id: '1' }).found)
+  check('transcript: 只有 tool_use 的消息不产出空文本', parseTranscript(JSON.stringify({ message: { role: 'assistant', content: [{ type: 'tool_use' }] } })).length === 0)
 }
 
 // --- retention -------------------------------------------------------------

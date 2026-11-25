@@ -120,6 +120,11 @@ $DSH_HOME/plugin-data/dsh-fleet/
 ```
 
 `@段名.字段` 从 `secrets.json` 取值，不写进仓库；`{brief}` / `{runId}` / `{id}` 是占位符。
+
+**平台正文回读**：有的平台 `/outcome` 只给统计（工具调用数、token、findings），真正的结论在
+磁盘上的 transcript 里。HTTP 驱动在任务完成后会回读最后一次 assistant 文本（`lib/transcript.js`），
+这样"done"才是一份交付。默认对 `identity: artex` 生效（读 `~/ARTEX/data/transcripts/exp{id}-*.jsonl`），
+可用 `spec.transcript: { dir, pattern }` 覆盖。
 远端 run 仍是一个受管子进程（驱动进程），所以队列、槽位、截止时间、SIGTERM、日志、
 suspect 扫描全部照样生效。
 
@@ -138,7 +143,7 @@ suspect 扫描全部照样生效。
 | `hermes-agent` | CLI `--query` | ✅ 补上 `--model` 后 26s 正常回话；**之前不配模型时它 exit 0 静默失败**（`Missing model`），见下方已知问题 |
 | `claude` / `codex` | CLI | 本机未安装（装上即可用，无需改插件） |
 | `cyberstrike` | **MCP 适配器** `http://127.0.0.1:8081/mcp` | ✅ 真实握手（CyberStrikeAI 1.0.0）→ 建队列 → 轮询 → 解析队列 id；探测用的队列已删除 |
-| `artex` | **HTTP 适配器** `http://127.0.0.1:8787` | 驱动已实现（登录→建任务→轮询→取结果），stub 平台跑通；**真跑需要 `secrets.json` 里的 ARTEX 密码** |
+| `artex` | **HTTP 适配器** `http://127.0.0.1:8787` | ✅ 真实闭环：登录 → 建任务 #2 → 轮询 → 完成（91s，goals 1/1，4 次工具调用）→ 回读 agent 结论 |
 
 > 关于 CyberStrike / ARTEX：它们不是"给一段提示词就完事"的 CLI。现在各自有一个协议驱动，
 > 把一个平台队列/任务当成一个 run 来监管；**平台侧的队列/任务会留在平台上**，便于复查，
@@ -170,7 +175,7 @@ suspect 扫描全部照样生效。
 ## 7. 自测
 
 ```bash
-node scripts/selftest.mjs     # 40 项：目录/简报/闭环/槽位/截止/停止/重试/重启接管/suspect 识别/记录保留/MCP 与 HTTP 适配器
+node scripts/selftest.mjs     # 45 项：目录/简报/闭环/槽位/截止/停止/重试/重启接管/suspect 识别/记录保留/MCP 与 HTTP 适配器
 ```
 
 自测用 `scripts/stub-agent.mjs` 当假 worker，不花一个 token，也不碰任何外部 CLI。

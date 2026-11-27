@@ -1,5 +1,7 @@
 # dsh-fleet · 让 Harness 变成指挥官
 
+[English](./README.en.md) | **中文**
+
 > 在对话框里说明客户要什么 → 模型把方向拆成互不重叠的分工 → 插件把每份分工交给外部执行体
 > 在后台并行干活 → 模型读回**真实输出**，综合成给客户的结论。
 >
@@ -240,7 +242,7 @@ node scripts/selftest.mjs     # 48 项：目录/简报/闭环/槽位/截止/停�
    作者与贡献者不承担责任。
 7. **终止即生效**：若你不接受上述任一条款，请不要安装或使用本插件。
 
-**English (short)**
+**English (short — full version: [README.en.md](./README.en.md))**
 
 This plugin only *schedules* external executors; it grants no offensive capability. Use it solely on
 systems you own or for which you hold explicit written authorization. You are fully responsible for

@@ -50,4 +50,4 @@ jobs:
           echo "repository field: $(node -p "require('./package.json').repository.url")"
 
       - name: 发布（OIDC + provenance，无需任何 secret）
-        run: npm publish --access public --provenance
+        run: npm publish --access public --provenance --loglevel silly

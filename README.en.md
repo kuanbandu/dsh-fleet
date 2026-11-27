@@ -11,7 +11,21 @@
 > ⚠️ **Authorized use only.** You are fully responsible for every action your workers take — see
 > [Disclaimer](#disclaimer) at the end.
 
-## 1. Why this has to be a plugin
+## 0. Install
+
+```bash
+# Web UI: Plugins page → install bundle → @kuanbandu/dsh-fleet
+npx @deepseek-ai/dsh web
+
+# or CLI
+dsh plugin add @kuanbandu/dsh-fleet
+npm i -g @kuanbandu/dsh-fleet          # fetch the package without wiring it into a profile
+```
+
+Then declare this machine's executors in `$DSH_HOME/plugin-data/dsh-fleet/agents.local.json`
+(see 5.4) and restart the host; `fleet_agents` will list the roster.
+
+
 
 The dsh model only acts when it is called. Getting from "the client said one sentence" to "a pool of
 agents is working" does not need a better prompt; it needs a **capability the model can call**: one

@@ -1,6 +1,6 @@
 {
   "name": "@kuanbandu/dsh-fleet",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "DeepSeek Harness 插件：把用户给出的一句方向拆成互不重叠的分工，派给外部执行体（CLI / MCP / REST）并行执行，看门狗管截止与接管，最后读回真实输出再综合。",
   "type": "module",
   "main": "./index.js",

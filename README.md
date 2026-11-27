@@ -9,6 +9,20 @@
 >
 > ⚠️ **仅限合法授权场景使用。** 使用者对派出去的所有动作负全责，详见文末《免责声明》。
 
+## 0. 安装
+
+```bash
+# Web UI：插件页 → 安装 bundle → 填 @kuanbandu/dsh-fleet
+npx @deepseek-ai/dsh web
+
+# 或 CLI
+dsh plugin add @kuanbandu/dsh-fleet
+npm i -g @kuanbandu/dsh-fleet          # 仅取包、不装进 profile 时
+```
+
+装完在 `$DSH_HOME/plugin-data/dsh-fleet/agents.local.json` 里写本机执行体（见 5.4），重启宿主后
+`fleet_agents` 就能看到花名册。
+
 ## 1. 为什么必须是插件
 
 dsh 的模型只在被调用时才行动。要让"客户说一句话、下面一组 agent 动起来"，缺的不是提示词，

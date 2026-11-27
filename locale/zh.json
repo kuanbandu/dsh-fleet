@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "智能体军团（dsh-fleet）",
-    "description": "在对话框里给出客户方向，Harness 就把任务拆给 opencode、hermes、claude、codex 等外部 agent 并行执行，并回收它们的结论与证据。"
+    "description": "在对话框里给出客户方向，Harness 就把任务拆给外部执行体并行执行，并回收它们的结论与证据。"
   }
 }

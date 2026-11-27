@@ -210,7 +210,7 @@ console.log('dsh-fleet selftest')
 
   const dir = freshDir('remote')
   writeFileSync(join(dir, 'secrets.json'), JSON.stringify({
-    stub: { mcpToken: 'stub-token', username: 'ARTEX', password: 'stub-password' },
+    stub: { mcpToken: 'stub-token', username: 'stub-user', password: 'stub-password' },
   }))
 
   const remoteAgents = buildAgentTable([

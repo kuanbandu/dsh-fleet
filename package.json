@@ -1,7 +1,7 @@
 {
   "name": "dsh-fleet",
-  "version": "0.1.0",
-  "description": "Agent legion for DeepSeek Harness: hand a client's direction to the chat, and the model dispatches opencode / hermes / claude / codex workers in parallel, watches their deadlines, and collects their deliverables.",
+  "version": "0.3.0",
+  "description": "Agent legion for DeepSeek Harness: hand a client's direction to the chat, and the model dispatches external executors (CLI, MCP, or HTTP) in parallel, watches their deadlines, and collects their deliverables.",
   "type": "module",
   "main": "./index.js",
   "exports": {
@@ -33,9 +33,8 @@
     "deepseek-harness",
     "multi-agent",
     "orchestration",
-    "opencode",
-    "hermes",
-    "sapper"
+    "agent-orchestration",
+    "process-supervision"
   ],
   "license": "MIT",
   "engines": {

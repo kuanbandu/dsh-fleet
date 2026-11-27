@@ -57,7 +57,7 @@ function toolResult(payload) {
   return { content: [{ type: 'text', text: JSON.stringify(payload) }] }
 }
 
-/** Queue snapshot in the shape CyberStrike returns. */
+/** Queue snapshot in the shape a batch-queue MCP platform returns. */
 function queuePayload() {
   return {
     id: 'q-stub',
@@ -111,7 +111,7 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === '/api/auth/login' && req.method === 'POST') {
     const credentials = await body(req)
-    if (credentials.username === 'ARTEX' && credentials.password === 'stub-password') {
+    if (credentials.username === 'stub-user' && credentials.password === 'stub-password') {
       send(res, 200, { token: 'stub-jwt' })
       return
     }

@@ -3,10 +3,10 @@
  *
  * The model stays the commander: the user types a client's direction into the
  * chat, the model splits it, and these tools hand each part to an external
- * agent CLI (opencode, hermes, claude, …) running as a supervised worker
- * process. sapper-v2's three-window runtime collapses into two here, because
- * the commander *is* the dsh session: what remains is the swarm, plus the
- * watchdog that keeps it honest (deadlines, retries, on-disk state).
+ * executor (a CLI process, or a platform driven over MCP / HTTP) running as a
+ * supervised worker. There is no separate commander process to build: the dsh
+ * session *is* the commander, so what remains is the pool of workers plus the
+ * watchdog that keeps them honest (deadlines, retries, on-disk state).
  */
 
 import { homedir } from 'node:os'
@@ -137,14 +137,16 @@ export function apply(ctx, config = {}) {
         order: 61,
         text: [
           '## 军团（外部 agent 调度）',
-          'fleet_* 工具可以把活派给外部执行型 agent（opencode、hermes、claude、codex…）在后台并行干活：',
+          'fleet_* 工具可以把活派给外部执行体（命令行 agent、或协议驱动的平台）在后台并行干活：',
           'fleet_agents（花名册/探活）→ fleet_dispatch（派活，返回 runId）→ fleet_status（进度，可内联等待）→ fleet_result（取交付）→ fleet_stop（取消）。',
-          'cli 型 agent 直接跑命令行；mcp/http 型（cyberstrike、artex）由协议驱动把一个平台队列/任务当成一个 run 来监管，凭据从 secrets.json 读。',
+          'cli 型直接跑命令行；mcp/http 型由协议驱动把一个平台队列/任务当成一个 run 来监管，凭据从 secrets.json 读。能派谁一律以 fleet_agents 的实际花名册为准。',
           '规则：',
           '- 用户给出方向/目标而任务规模明显超过一轮对话时，先 fleet_agents 确认能用的 agent，再拆成互不重叠的分工并行派出去；小任务自己做完更快，不要为了派而派。',
           '- goal 传用户原话，不要压缩成口号；拆解放在 assignments 里，每个 worker 一份。',
           '- 汇报前必须 fleet_result 读回真实输出：worker 的自述不等于证据，日志里没有的结论不要写进最终答复。',
           '- 交付给客户的是综合后的结论（结论/证据/未完成），不要把 worker 日志整段贴出来；证据路径可以给。',
+          '- 宿主走代理时，外部请求可能拿到伪造的失败；简报里要求直连（--noproxy 或清 HTTP(S)_PROXY），见到“整片不可达”先怀疑代理。',
+          '- 原生下拉、富文本编辑器 iframe、系统文件上传这三类交互，点击/按键驱动不可靠；不要硬试，改为导出材料＋交给人工确认。',
         ].join('\n'),
       }), 'dsh-fleet: system prompt')
     })

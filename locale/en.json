@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Agent legion (dsh-fleet)",
-    "description": "Describe a client's direction in chat and the Harness splits it across external agents (opencode, hermes, claude, codex) running in parallel, then collects their conclusions and evidence."
+    "description": "Describe a client's direction in chat and the Harness splits it across external executors running in parallel, then collects their conclusions and evidence."
   }
 }

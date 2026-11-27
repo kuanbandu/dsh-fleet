@@ -47,3 +47,5 @@
             endpoint: http://127.0.0.1:8081/
           - id: artex
             endpoint: http://127.0.0.1:8787/
+            spec:
+              transcript: { dir: /home/kali/ARTEX/data/transcripts, pattern: 'exp{id}-*.jsonl' }

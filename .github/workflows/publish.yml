@@ -49,5 +49,16 @@ jobs:
           done
           echo "repository field: $(node -p "require('./package.json').repository.url")"
 
+      - name: 版本是否已发布（重推 tag 时幂等跳过）
+        id: check
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if npm view "@kuanbandu/dsh-fleet@$V" version --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
+            echo "已发布 $V，跳过发布步骤"; echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "准备发布 $V"; echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: 发布（OIDC + provenance，无需任何 secret）
+        if: steps.check.outputs.skip != 'true'
         run: npm publish --access public --provenance

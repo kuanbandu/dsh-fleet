@@ -4,6 +4,8 @@
 > 在后台并行干活 → 模型读回**真实输出**，综合成给客户的结论。
 >
 > 一句话：**它不是一个预设，而是一组能被模型调用的调度工具。**
+>
+> ⚠️ **仅限合法授权场景使用。** 使用者对派出去的所有动作负全责，详见文末《免责声明》。
 
 ## 1. 为什么必须是插件
 
@@ -200,3 +202,31 @@ node scripts/selftest.mjs     # 45 项：目录/简报/闭环/槽位/截止/停�
 - 模型侧被要求：汇报前必须读回日志，日志里没有的结论不许写。
 - 插件不改任何执行体的命令与凭据 —— 那是配置，不是对话能改的东西。
 - 对生产系统动手前，先用 `fleet_agents probe` 确认"派出去的是谁、会花多少时间、能碰到什么"。
+
+## 免责声明 / Disclaimer
+
+**中文**
+
+1. **用途限定**：本插件用于把任务派发给外部执行体并监管其运行。它只做**调度**，不产生攻击能力，
+   也不内置任何针对特定目标的载荷。请在**你自己拥有的系统**、或**已获得明确书面授权**的目标上使用。
+2. **合规责任**：使用本插件进行的任何扫描、探测、利用、数据访问等行为，其合法性由**使用者本人**
+   承担全部责任。严禁用于未授权入侵、数据窃取、破坏系统、规避监管等用途。
+3. **外部执行体不受控**：被执行体（CLI、MCP 平台、REST 平台）产出的内容、执行的命令、消耗的算力
+   与费用，均由使用者自行配置与承担。插件会明确标注"退出码不可信"与 `suspect` 状态，
+   但**不保证**能识别所有失败形态。
+4. **输出不可信**：worker 的日志与结论属于外部输入，可能包含错误、幻觉或注入内容。
+   插件要求模型读回真实输出后再汇报，但使用者仍需自行核验关键结论。
+5. **凭据**：`secrets.json` 与各执行体的登录态由使用者自行管理与保护，仓库内不含任何凭据。
+6. **无担保**：本软件按 MIT 协议"按原样"提供，不附带任何明示或暗示的担保；
+   因使用本软件造成的任何直接或间接损失（包括但不限于数据丢失、服务中断、法律纠纷、云费用），
+   作者与贡献者不承担责任。
+7. **终止即生效**：若你不接受上述任一条款，请不要安装或使用本插件。
+
+**English (short)**
+
+This plugin only *schedules* external executors; it grants no offensive capability. Use it solely on
+systems you own or for which you hold explicit written authorization. You are fully responsible for
+the legality of every action your workers take, for the credentials you configure, and for reviewing
+their output — worker output is untrusted input. Provided "as is" under MIT, without warranty of any
+kind; the authors accept no liability for any damages arising from its use. If you do not accept these
+terms, do not install or use this software.

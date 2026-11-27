@@ -41,5 +41,13 @@ jobs:
       - name: 自检（无需网络与凭据）
         run: npm test
 
+      - name: OIDC 环境自检（不打印任何令牌值）
+        run: |
+          echo "npm: $(npm --version)"
+          for v in ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_RUNTIME_TOKEN; do
+            if [ -n "${!v:-}" ]; then echo "$v = SET"; else echo "$v = (empty)"; fi
+          done
+          echo "repository field: $(node -p "require('./package.json').repository.url")"
+
       - name: 发布（OIDC + provenance，无需任何 secret）
         run: npm publish --access public --provenance

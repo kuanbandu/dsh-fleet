@@ -11,7 +11,7 @@
 
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { buildAgentTable } from './lib/agents.js'
+import { buildAgentTable, readLocalOverrides } from './lib/agents.js'
 import { createFileLogger } from './lib/log.js'
 import { Fleet } from './lib/runner.js'
 import { registerFleetTools } from './lib/tools.js'
@@ -83,10 +83,20 @@ export function normalizeConfig(config = {}) {
  */
 export function apply(ctx, config = {}) {
   const resolved = normalizeConfig(config)
-  const agents = buildAgentTable(resolved.agents, resolved.disabled)
+  // Machine-specific pins (absolute binaries, platform endpoints) belong to the
+  // host, not to the published bundle: fold in agents.local.json before building.
+  const local = readLocalOverrides(resolved.dataDir)
+  const agents = buildAgentTable(
+    [...resolved.agents, ...local.agents],
+    [...resolved.disabled, ...local.disabled],
+  )
 
   // Ops log: a real file next to the runs, mirrored to the Host logger when it
   // lands somewhere visible. This profile's ctx.logger does not.
+  if (local.agents.length) {
+    ctx.logger?.info?.(`dsh-fleet: 已合并 ${local.agents.length} 条本机覆盖（${local.source}）`)
+  }
+
   const sink = createFileLogger({ dir: resolved.dataDir })
   const logger = {
     path: sink.path,

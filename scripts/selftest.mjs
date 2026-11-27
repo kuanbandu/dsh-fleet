@@ -10,7 +10,7 @@
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildAgentTable, buildBrief, DEFAULT_AGENTS } from '../lib/agents.js'
+import { buildAgentTable, buildBrief, DEFAULT_AGENTS, readLocalOverrides } from '../lib/agents.js'
 import { parseTranscript, readAgentTranscript } from '../lib/transcript.js'
 import { Fleet, isAlive, tailFile } from '../lib/runner.js'
 
@@ -253,6 +253,18 @@ console.log('dsh-fleet selftest')
   check('远端 run 不被误判 suspect', mcpView.suspect.length === 0 && httpView.suspect.length === 0)
   fleet.dispose()
   stub.kill('SIGTERM')
+}
+
+// --- per-machine overrides -------------------------------------------------
+console.log('local overrides')
+{
+  const dir = freshDir('local-overrides')
+  check('local overrides: 缺文件时安全返回空', readLocalOverrides(dir).agents.length === 0)
+  writeFileSync(join(dir, 'agents.local.json'), JSON.stringify({ agents: [{ id: 'x', command: '/bin/true' }], disabled: ['y'] }))
+  const got = readLocalOverrides(dir)
+  check('local overrides: 读到 agents 与 disabled', got.agents.length === 1 && got.disabled[0] === 'y', JSON.stringify(got))
+  writeFileSync(join(dir, 'agents.local.json'), '{ not json')
+  check('local overrides: 坏 JSON 不抛错', readLocalOverrides(dir).agents.length === 0)
 }
 
 // --- platform transcripts --------------------------------------------------

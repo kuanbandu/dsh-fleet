@@ -130,6 +130,24 @@ $DSH_HOME/plugin-data/dsh-fleet/
 远端 run 仍然是一个受管子进程（协议驱动），队列、槽位、截止时间、SIGTERM、日志、suspect 扫描
 全部照样生效。
 
+### 5.4 本机覆盖：把机器相关的东西留在机器上
+
+绝对路径、本机端口、私有凭据段这类"只在这台机器成立"的配置，不要写进 bundle 的 patch。
+放到 `$DSH_HOME/plugin-data/dsh-fleet/agents.local.json`（覆盖同名 `id` 的字段，不进仓库、不随包发布）：
+
+```json
+{
+  "agents": [
+    { "id": "my-cli-agent", "command": "/opt/my-agent/bin/run",
+      "args": ["--prompt", "{prompt}"] },
+    { "id": "platform-batch", "endpoint": "http://127.0.0.1:8081/" }
+  ],
+  "disabled": ["some-default-id"]
+}
+```
+
+这样仓库和 npm 包里只有通用默认值，别人装上就能用；本机要钉的路径只存在本地。
+
 ## 6. 实战校准（真实交付里补出来的东西）
 
 下面每一条都不是设计时想到的，是被真实任务打出来的。
@@ -181,7 +199,7 @@ $DSH_HOME/plugin-data/dsh-fleet/
 ## 8. 自测
 
 ```bash
-node scripts/selftest.mjs     # 45 项：目录/简报/闭环/槽位/截止/停止/重试/重启接管/suspect/记录保留/MCP 与 HTTP 适配器
+node scripts/selftest.mjs     # 48 项：目录/简报/闭环/槽位/截止/停止/重试/重启接管/suspect/记录保留/MCP 与 HTTP 适配器
 ```
 
 自测用 `scripts/stub-agent.mjs` 当假 worker，不花一个 token，也不碰任何外部 CLI。

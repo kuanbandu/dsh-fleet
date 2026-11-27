@@ -1,7 +1,7 @@
 {
-  "name": "dsh-fleet",
+  "name": "@kuanbandu/dsh-fleet",
   "version": "0.3.0",
-  "description": "Agent legion for DeepSeek Harness: hand a client's direction to the chat, and the model dispatches external executors (CLI, MCP, or HTTP) in parallel, watches their deadlines, and collects their deliverables.",
+  "description": "DeepSeek Harness 插件：把用户给出的一句方向拆成互不重叠的分工，派给外部执行体（CLI / MCP / REST）并行执行，看门狗管截止与接管，最后读回真实输出再综合。",
   "type": "module",
   "main": "./index.js",
   "exports": {
@@ -16,7 +16,8 @@
     "scripts",
     "cordis.patch.yml",
     "icon.svg",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "icon": "./icon.svg",
   "dsh": {
@@ -30,14 +31,28 @@
   },
   "keywords": [
     "dsh",
+    "dsh-plugin",
     "deepseek-harness",
     "multi-agent",
-    "orchestration",
     "agent-orchestration",
-    "process-supervision"
+    "process-supervision",
+    "orchestration"
   ],
   "license": "MIT",
   "engines": {
     "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kuanbandu/dsh-fleet.git"
+  },
+  "homepage": "https://github.com/kuanbandu/dsh-fleet#readme",
+  "bugs": {
+    "url": "https://github.com/kuanbandu/dsh-fleet/issues"
+  },
+  "author": "kuanbandu",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }

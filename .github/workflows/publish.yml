@@ -1,0 +1,45 @@
+# 打 tag（v*）或手动触发时发布到 npm。
+#
+# 两种认证方式二选一，下面默认走 OIDC（不需要任何 token）：
+#
+# A) Trusted Publishing（推荐，无凭据）
+#    npm 网页端 → 包/新包页面 → Settings → Trusted Publisher → GitHub Actions
+#      Organization or user : kuanbandu
+#      Repository           : dsh-fleet
+#      Workflow filename    : publish.yml     ← 必须与本文件名一致
+#      Environment          : 留空
+#    然后在 npm 账号里把 Publishing access 收紧为「必需 2FA 且禁用 token」。
+#
+# B) 传统 token（临时可用）
+#    在仓库 Settings → Secrets → Actions 里加 NPM_TOKEN（granular，read+write，
+#    packages 选 All packages），并把下面最后一步换成带 NODE_AUTH_TOKEN 的写法。
+name: publish
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OIDC：让 npm 验证「本次发布确实来自本仓库的这个工作流」
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 不要设置 registry-url：它会让 npm 退回 token 流程、跳过 OIDC 交换
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 升级 npm（OIDC 需要 >= 11.5.1）
+        run: npm install -g npm@^11.5.1 && npm --version
+
+      - name: 自检（无需网络与凭据）
+        run: npm test
+
+      - name: 发布（OIDC + provenance，无需任何 secret）
+        run: npm publish --access public --provenance

@@ -1,121 +1,136 @@
-# dsh-fleet · 让 Harness 变成指挥官
+# dsh-fleet · turn the Harness into a commander
 
-[English](./README.en.md) | **中文**
+**English** | [中文](./README.zh.md)
 
-> 在对话框里说明客户要什么 → 模型把方向拆成互不重叠的分工 → 插件把每份分工交给外部执行体
-> 在后台并行干活 → 模型读回**真实输出**，综合成给客户的结论。
+> Say what the client wants in the chat → the model splits it into non-overlapping assignments → the
+> plugin hands each one to an external executor that works in the background → the model reads the
+> **actual output** back and reports a synthesised conclusion.
 >
-> 一句话：**它不是一个预设，而是一组能被模型调用的调度工具。**
+> In one line: **not a preset, but a set of scheduling tools the model can call.**
 >
-> ⚠️ **仅限合法授权场景使用。** 使用者对派出去的所有动作负全责，详见文末《免责声明》。
+> ⚠️ **Authorized use only.** You are fully responsible for every action your workers take — see
+> [Disclaimer](#disclaimer) at the end.
 
-## 0. 安装
+> **Credit where it is due:** the *commander / legion / watchdog* split is borrowed from
+> [sapper-v2](https://github.com/N1nEmAn/sapper-v2). In dsh the commander needs no separate process —
+> the session itself is the commander — so what this plugin builds is the legion and the watchdog.
+
+## 0. Install
 
 ```bash
-# Web UI：插件页 → 安装 bundle → 填 @kuanbandu/dsh-fleet
+# Web UI: Plugins page → install bundle → @kuanbandu/dsh-fleet
 npx @deepseek-ai/dsh web
 
-# 或 CLI
+# or CLI
 dsh plugin add @kuanbandu/dsh-fleet
-npm i -g @kuanbandu/dsh-fleet          # 仅取包、不装进 profile 时
+npm i -g @kuanbandu/dsh-fleet          # fetch the package without wiring it into a profile
 ```
 
-装完在 `$DSH_HOME/plugin-data/dsh-fleet/agents.local.json` 里写本机执行体（见 5.4），重启宿主后
-`fleet_agents` 就能看到花名册。
+Then declare this machine's executors in `$DSH_HOME/plugin-data/dsh-fleet/agents.local.json`
+(see 5.4) and restart the host; `fleet_agents` will list the roster.
 
-## 1. 为什么必须是插件
 
-dsh 的模型只在被调用时才行动。要让"客户说一句话、下面一组 agent 动起来"，缺的不是提示词，
-而是一个**能被模型调用的能力**：它得能启动进程、分配槽位、盯截止时间、把输出原样收回来。
 
-这个位置只能是 Host 插件：工具注册进 `ctx.tools`，派不派、派几份、什么时候停，由模型按对话决定。
+The dsh model only acts when it is called. Getting from "the client said one sentence" to "a pool of
+agents is working" does not need a better prompt; it needs a **capability the model can call**: one
+that spawns processes, allocates slots, watches deadlines, and collects output verbatim.
+
+That place is the Host plugin layer. Tools are registered into `ctx.tools`, and the model — driven by
+the conversation — decides whether to dispatch, how many ways to split the work, and when to stop.
 
 ```
-用户: "把这个仓库的 CI 修好，顺手把文档补上"
+User: "fix this repo's CI, and update the docs while you're at it"
         │
         ▼
-dsh 会话（指挥官）── fleet_agents   先看谁能干
-        │            fleet_dispatch 拆成两份，并行派出
+dsh session (commander) ── fleet_agents   who is available?
+        │                 fleet_dispatch  split in two, dispatch in parallel
         ▼
-┌───────────────────────────────┐
-│ runs/<runId>/brief.md   简报    │   ← 总目标 + 自己的分工 + 纪律 + 交付格式
-│ runs/<runId>/out.log   全过程  │
-│ runs/<runId>/state.json 状态   │
-└───────────────────────────────┘
-        │  spawn(绝对路径, args) 或 spawn(协议驱动)
+┌────────────────────────────────┐
+│ runs/<runId>/brief.md   brief   │   ← overall goal + this worker's slice + rules + format
+│ runs/<runId>/out.log    output  │
+│ runs/<runId>/state.json state   │
+└────────────────────────────────┘
+        │  spawn(absolute path, args)  or  spawn(protocol driver)
         ▼
-  CLI 型 │ MCP 批次型 │ REST 任务型 …   ← 执行体：真正的力气活
+  CLI | batch MCP | task REST …   ← executors: the actual muscle
         │
         ▼
-dsh 会话 ── fleet_status / fleet_result 收结果 → 综合成结论
+dsh session ── fleet_status / fleet_result collect → synthesised answer
         ▲
-        └── 看门狗：截止时间、失败重试、崩溃重启后接管状态、槽位回收、日志落盘
+        └── watchdog: deadlines, retries, re-adoption after restart, slot reclamation, logs on disk
 ```
 
-## 2. 五个工具
+## 2. The five tools
 
-| 工具 | 作用 | 关键参数 |
+| Tool | Purpose | Key parameters |
 |---|---|---|
-| `fleet_agents` | 花名册 + 探活（`--version` / 服务端握手） | `action: list\|probe` |
-| `fleet_dispatch` | 派活，立刻返回 runId | `goal`（用户原话）、`agents[]`、`assignments[]`、`context`、`cwd`、`timeoutSec`、`waitSec` |
-| `fleet_status` | 进度、耗时、退出码、日志尾部 | `runId`（可 `all`）、`waitSec`（内联等待，省 sleep） |
-| `fleet_result` | 取一个 worker 的交付 | `runId`、`full`、`tailLines` |
-| `fleet_stop` | 取消（SIGTERM → 8s → SIGKILL） | `runId` 或 `all`、`reason` |
+| `fleet_agents` | Roster + liveness probe (`--version` / service handshake) | `action: list\|probe` |
+| `fleet_dispatch` | Dispatch work, returns a runId immediately | `goal` (the user's own words), `agents[]`, `assignments[]`, `context`, `cwd`, `timeoutSec`, `waitSec` |
+| `fleet_status` | Progress, elapsed time, exit code, log tail | `runId` (or `all`), `waitSec` (inline wait instead of sleeping) |
+| `fleet_result` | Collect one worker's deliverable | `runId`, `full`, `tailLines` |
+| `fleet_stop` | Cancel (SIGTERM → 8s → SIGKILL) | `runId` or `all`, `reason` |
 
-## 3. 写死的约束（不靠提示词祈祷）
+## 3. Constraints built into the plugin (not left to prompt-following)
 
-- **队列与槽位**：`maxConcurrent`（默认 4）控制并行数，多出来的排队，不炸机器；待执行上限 64。
-- **截止时间**：每个 worker 都有 `timeoutSec`，到点 SIGTERM，8 秒后 SIGKILL，状态记 `timeout`。
-- **失败重试**：`retryLimit`（默认 0），重试时上一轮日志尾巴保留在同一个 `out.log` 里。
-- **重启可接管**：状态落盘 `state.json`；Harness 重启后按 pid 重新接管（`adopted`），
-  进程已死的记 `lost`，不假装成功。
-- **简报即契约**：worker 的 `brief.md` 要求按 `## 结论 / ## 证据 / ## 未完成` 三段交付；
-  模型被要求在汇报前必须 `fleet_result` 读回真实输出。
+- **Queue and slots**: `maxConcurrent` (default 4) caps parallelism; the rest queue up instead of
+  melting the machine. Backlog limit 64.
+- **Deadlines**: every worker has a `timeoutSec`; on expiry SIGTERM, then SIGKILL 8 seconds later,
+  state recorded as `timeout`.
+- **Retries**: `retryLimit` (default 0); on retry the previous attempt's log tail is kept in the same
+  `out.log` rather than silently discarded.
+- **Adoption after restart**: state is persisted to `state.json`; after a Harness restart workers are
+  re-adopted by pid (`adopted`), and processes that are already gone are recorded as `lost` instead of
+  being reported as successes.
+- **The brief is the contract**: each worker's `brief.md` requires delivery in three sections —
+  `## Conclusion / ## Evidence / ## Not done` — and the model is required to call `fleet_result` and
+  read the real output before reporting anything.
 
-## 4. 目录布局
+## 4. Directory layout
 
 ```
 $DSH_HOME/plugin-data/dsh-fleet/
-  fleet.log      插件自身运维日志（激活、接管、清理、停止；2MiB 轮转一份）
-  secrets.json   远端执行体凭据（可选，600）：{"<identity>":{"<field>":"…"}}
+  fleet.log      the plugin's own ops log (activation, adoption, pruning, stop; one 2 MiB rotation)
+  secrets.json   remote executor credentials (optional, mode 600): {"<identity>":{"<field>":"…"}}
   runs/
     r-20261124-123705-08e6/
-      brief.md     派给它的完整简报
-      out.log      stdout+stderr 全量（含每次 attempt 头）
-      state.json   状态机：queued/running/done/failed/timeout/stopped/lost
+      brief.md     the full brief handed to this worker
+      out.log      stdout+stderr verbatim (including per-attempt headers)
+      state.json   state machine: queued/running/done/failed/timeout/stopped/lost
 ```
 
-> `ctx.logger` 在这个 profile 里没有可观测落点（journal 与 `$DSH_HOME/logs` 都收不到 `info` 级
-> 插件日志），所以插件自己写 `fleet.log`，同时仍镜像给 Host logger。
+> `ctx.logger` has no observable sink in this profile (neither the journal nor `$DSH_HOME/logs`
+> receives `info`-level plugin logs), so the plugin writes `fleet.log` itself while still mirroring to
+> the Host logger.
 
-## 5. 配置：接一个执行体
+## 5. Configuration: wiring an executor
 
-`config.agents` 按 `id` 覆盖内置条目，新 `id` 就是新增条目。
+Entries in `config.agents` override built-in entries by `id`; a new `id` adds a new entry.
 
-### 5.1 CLI 型
+### 5.1 CLI executors
 
 ```yaml
         agents:
           - id: my-cli-agent
-            command: /opt/my-agent/bin/run     # 绝对路径最稳；裸名会查 PATH + 常见 bin 目录
-            args: ["--prompt", "{prompt}"]     # 占位符：{prompt} {brief} {cwd} {runDir} {runId} {goal}
+            command: /opt/my-agent/bin/run     # absolute path is safest; a bare name searches PATH + common bin dirs
+            args: ["--prompt", "{prompt}"]     # placeholders: {prompt} {brief} {cwd} {runDir} {runId} {goal}
             timeoutSec: 900
             env: { MY_FLAG: "1" }
 ```
 
-占位符规则：
+Placeholder rules:
 
-- `args` 里出现 `{prompt}` 或 `{brief}` → 简报走参数（CLI 友好）；
-- 都不出现 → 简报写进 **stdin**；
-- 环境变量里总有 `FLEET_RUN_ID`、`FLEET_BRIEF`（简报路径），worker 可自行回读。
+- `{prompt}` or `{brief}` present in `args` → the brief goes in as an argument (CLI-friendly);
+- neither present → the brief is written to **stdin**;
+- `FLEET_RUN_ID` and `FLEET_BRIEF` (brief path) are always exported, so a worker can read the brief
+  itself.
 
-### 5.2 批次型 MCP 平台
+### 5.2 Batch-style MCP platforms
 
 ```yaml
           - id: platform-batch
             adapter: mcp
             endpoint: http://127.0.0.1:8081/mcp
-            identity: platform-batch          # secrets.json 里的段名
+            identity: platform-batch          # section name in secrets.json
             spec:
               headers: { X-MCP-Token: '@platform-batch.token' }
               create: { tool: batch_task_create, toText: tasks, args: { execute_now: false, concurrency: 1 } }
@@ -123,7 +138,7 @@ $DSH_HOME/plugin-data/dsh-fleet/
               poll:   { tool: batch_task_get, intervalSec: 5, doneQueueStatuses: [completed] }
 ```
 
-### 5.3 任务型 REST 平台
+### 5.3 Task-style REST platforms
 
 ```yaml
           - id: platform-task
@@ -137,19 +152,23 @@ $DSH_HOME/plugin-data/dsh-fleet/
               outcome: { path: '/api/tasks/{id}/outcome' }
 ```
 
-`@段名.字段` 从 `secrets.json` 取值，不进仓库；`{brief}` / `{runId}` / `{id}` 是占位符。
+`@section.field` is resolved from `secrets.json` and never lives in the repository; `{brief}`,
+`{runId}` and `{id}` are placeholders.
 
-**正文回读**：有的平台 `/outcome` 只给统计（工具调用数、token、findings），真正的结论在平台
-自己的 transcript 里。HTTP 驱动在任务完成后会回读最后一次 assistant 文本（`lib/transcript.js`），
-这样 `done` 才是一份交付；路径可用 `spec.transcript: { dir, pattern }` 指定。
+**Reading the body back**: some platforms answer `/outcome` with statistics only (tool calls, tokens,
+findings) while the actual conclusion sits in the platform's own transcript. The HTTP driver reads the
+last assistant message back after completion (`lib/transcript.js`) so that `done` actually means a
+deliverable; the location is configurable via `spec.transcript: { dir, pattern }`.
 
-远端 run 仍然是一个受管子进程（协议驱动），队列、槽位、截止时间、SIGTERM、日志、suspect 扫描
-全部照样生效。
+A remote run is still a supervised child process (the protocol driver), so queueing, slots, deadlines,
+SIGTERM, logging and `suspect` scanning all apply exactly as they do for local CLIs.
 
-### 5.4 本机覆盖：把机器相关的东西留在机器上
+### 5.4 Machine-local overrides: keep machine facts on the machine
 
-绝对路径、本机端口、私有凭据段这类"只在这台机器成立"的配置，不要写进 bundle 的 patch。
-放到 `$DSH_HOME/plugin-data/dsh-fleet/agents.local.json`（覆盖同名 `id` 的字段，不进仓库、不随包发布）：
+Anything that is only true on one host — absolute paths, local ports, private credential sections —
+does not belong in the bundle patch. Put it in
+`$DSH_HOME/plugin-data/dsh-fleet/agents.local.json` (it overrides fields of the same `id`, is never
+committed and never published):
 
 ```json
 {
@@ -162,105 +181,123 @@ $DSH_HOME/plugin-data/dsh-fleet/
 }
 ```
 
-这样仓库和 npm 包里只有通用默认值，别人装上就能用；本机要钉的路径只存在本地。
+That way the repository and the npm package carry generic defaults that work out of the box, while the
+paths this machine pins stay local.
 
-## 6. 实战校准（真实交付里补出来的东西）
+## 6. Calibration from real engagements
 
-下面每一条都不是设计时想到的，是被真实任务打出来的。
+None of the following was planned up front; every item came out of running actual work.
 
-1. **出口代理会把正常请求变成假的失败。** 宿主机走了 HTTP(S) 代理时，外部执行体发出去的请求
-   可能拿到伪造的 502/超时，然后它认真地报告"目标不可达"。简报里必须写死"直连"，
-   命令上加 `--noproxy '*'` 或 `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY`；
-   模型看到"整片不可达"时，先怀疑代理，再怀疑目标。
-2. **退出码不可信。** 有的 CLI 在没配模型、缺参数时照样 `exit 0`，失败信息只写在输出里。
-   插件因此对每次尝试做输出特征扫描，命中就标 `suspect`（状态仍 `done`，但
-   `fleet_status` / `fleet_result` 会明确警告"别当成功"）。特征表故意收窄，
-   不匹配普通 `HTTP 4xx`，免得把"目标真的 404"误判成 worker 失败。
-3. **远端的 `done` 不等于有交付。** 平台可能只回一行"任务完成"，结论在 transcript 里。
-   不读回来就汇报，等于把平台的自述当证据 —— 这正是插件要回读正文的原因。
-4. **交互式界面是工具链的盲区，不要让 agent 假装能点。** 原生下拉、富文本 iframe（编辑器）、
-   系统文件选择器，这三类东西靠"点击 + 按键"驱动不可靠：下拉可能打得开、值却不提交；
-   编辑器 iframe 可能根本读不到 DOM；上传需要真实用户手势。
-   **正确做法是降级交付**：把要填的内容导出成本地"一键复制页"（浏览器打开、点一下进剪贴板），
-   把要传的图合并成一张，把剩下的人工动作压缩到"粘 + 选 + 点提交"。宁可承认边界，
-   也不要让 worker 在没人看的情况下瞎点生产表单。
-5. **成本要有闸。** 一次 run 可能吃掉几十万 token：先 `fleet_agents probe` 再派、
-   给每个 worker 合理 `timeoutSec`、并发别超过机器能扛的量、历史记录靠 `keepRuns` 清。
-   派活简报里明确写"不得自行扩大范围"，比事后 `fleet_stop` 便宜得多。
-6. **目录约定比提示词可靠。** 一次真实交付的产物是：交战规则、发现记录、原始证据、
-   提交材料 —— 全放在同一个 `engagements/<目标>/` 下，按固定子目录命名。
-   插件只负责调度，材料规范靠目录约束，交接和复盘才不靠记忆。
-7. **报告里的每条命令，自己先跑一遍。** 交付给客户/平台的复现步骤，如果作者没实际执行过，
-   就会出现"参数写错、输出对不上"的硬伤，而审核恰恰会照着敲。这条已经写成硬规矩：
-   写进报告的命令，必须当场复现过一次。
-8. **热更边界。** 协议驱动是每次 run 独立拉起的子进程，改它立即生效；
-   插件自身的模块改了必须重启宿主（重装 bundle 只重跑 `apply`，不重新 `import`）。
+1. **An egress proxy turns healthy requests into fake failures.** When the host routes through an
+   HTTP(S) proxy, an executor's outbound requests can come back as forged 502s or timeouts — and it
+   will earnestly report "target unreachable". Briefs must mandate direct connections, and commands
+   need `--noproxy '*'` or `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY`. When a model sees "the
+   whole target is unreachable", suspect the proxy before the target.
+2. **Exit codes lie.** Some CLIs exit 0 while failing (missing model, missing arguments) and only say
+   so in their output. The plugin therefore scans each attempt's output for failure signatures and
+   marks the run `suspect` — state stays `done`, but `fleet_status` / `fleet_result` warn explicitly
+   that it must not be treated as success. The signature list is deliberately narrow and does not
+   match plain `HTTP 4xx`, so a genuine 404 on a target is not mistaken for worker failure.
+3. **A remote `done` is not a deliverable.** A platform may answer with a single "task completed"
+   line while the conclusion lives in its transcript. Reporting without reading it back means treating
+   the platform's self-report as evidence — which is exactly why the plugin reads the body back.
+4. **Interactive UIs are a blind spot — never let an agent pretend it can click.** Native selects,
+   rich-text editor iframes and OS file pickers cannot be driven reliably by "click + keypress": a
+   select may open without committing its value, an editor iframe may be unreadable, and uploads
+   require a real user gesture. **Degrade the delivery instead**: export the content to a local
+   one-click copy page (open in a browser, one click to clipboard), merge the images into a single
+   file, and reduce the human's remaining work to "paste + pick + submit". Admitting the boundary
+   beats letting a worker randomly click a production form with nobody watching.
+5. **Budget needs a valve.** One run can burn hundreds of thousands of tokens: probe with
+   `fleet_agents` first, give every worker a sane `timeoutSec`, keep parallelism within what the
+   machine can take, and let `keepRuns` prune history. Writing "do not widen the scope on your own"
+   into the brief is far cheaper than a later `fleet_stop`.
+6. **Directory conventions beat prompts.** The artifacts of one real engagement are: rules of
+   engagement, findings, raw evidence, submission material — all under a single
+   `engagements/<target>/` with fixed subdirectory names. The plugin only schedules; material
+   discipline comes from the directory layout, so handover and review do not depend on memory.
+7. **Every command in a report must be run by its author first.** Reproduction steps handed to a
+   client or a platform that were never executed produce the worst kind of defect: wrong flags and
+   output that does not match — and reviewers do type them in. This is now a hard rule: a command
+   written into a report must have been reproduced once, on the spot.
+8. **Hot-reload boundary.** Protocol drivers are per-run child processes, so edits to them take effect
+   immediately; edits to the plugin's own modules require a host restart (reinstalling the bundle
+   only re-runs `apply`, it does not re-`import`).
 
-## 7. 已知问题与限制
+## 7. Known issues and limits
 
-1. **改了插件源码必须重启宿主。** 重装 bundle 只重跑 `apply`，不重新 `import` 模块。
-2. **exit code 不可信** → 见 6.2，`suspect` 机制兜底。
-3. **worker 的 cwd 不保证。** 有的 CLI 会把 cwd 上溯到 git 根。简报里已要求"先显式 cd 回工作目录"；
-   要硬隔离就把 cwd 指到非 git 目录，或放进容器。
-4. **探活只是提示。** 有的 CLI `--version` 启动很慢，可能 `ready:false` 而实际可派；
-   二进制存在（`available:true`）就允许 dispatch。
-5. **远端适配器的边界。** 队列/任务建在平台上，fleet 只负责派与收，平台 UI 仍可看到并干预；
-   超时退出时平台侧任务可能还在跑，fleet **不会**替你清理。
-6. **插件日志在 `fleet.log`**，不在 journal。排障先看
-   `$DSH_HOME/plugin-data/dsh-fleet/fleet.log`。
-7. **运行记录有上限。** `keepRuns`（默认 50）之外的历史 run 在激活时连同日志一起删掉。
-8. **重启只认「新 token URL 返回 200」。** 配套脚本先停崩溃循环、再清掉占用端口的非单元进程、
-   然后起单元并验证 URL；`manual` 模式把端口交还手工启动，`dry-run` 只看不改。
+1. **Source changes require a host restart.** Reinstalling the bundle re-runs `apply` but does not
+   re-`import` modules.
+2. **Exit codes are unreliable** → see 6.2; the `suspect` marker is the safety net.
+3. **A worker's cwd is not guaranteed.** Some CLIs walk the cwd up to the git root. Briefs already ask
+   workers to `cd` back to the working directory explicitly; for hard isolation point `cwd` at a
+   non-git directory, or run inside a container.
+4. **Probing is advisory.** Some CLIs start slowly on `--version`, so `ready:false` may be reported
+   while dispatch would still work; if the binary exists (`available:true`), dispatch is allowed.
+5. **Remote adapter boundaries.** Queues/tasks live on the platform; the fleet only dispatches and
+   collects, and the platform UI can still observe and interfere. When a run times out the platform
+   side may keep running, and the fleet **will not** clean it up for you.
+6. **Plugin logs are in `fleet.log`,** not in the journal. Start troubleshooting at
+   `$DSH_HOME/plugin-data/dsh-fleet/fleet.log`.
+7. **Run history is capped.** Runs older than `keepRuns` (default 50) are deleted together with their
+   logs on activation.
+8. **Restart is only declared successful on "the new token URL returns 200".** The companion script
+   stops a crash loop first, clears non-unit processes holding the port, then starts the unit and
+   verifies the URL; `manual` mode hands the port back to a manual start and `dry-run` only reports.
 
-## 8. 自测
+## 8. Self-test
 
 ```bash
-node scripts/selftest.mjs     # 48 项：目录/简报/闭环/槽位/截止/停止/重试/重启接管/suspect/记录保留/MCP 与 HTTP 适配器
+node scripts/selftest.mjs     # 48 checks: dirs/brief/round-trip/slots/deadline/stop/retry/adoption/suspect/retention/MCP+REST adapters/machine-local overrides
 ```
 
-自测用 `scripts/stub-agent.mjs` 当假 worker，不花一个 token，也不碰任何外部 CLI。
+The self-test uses `scripts/stub-agent.mjs` as a fake worker: it burns no tokens and touches no
+external CLI.
 
-## 9. 路线图
+## 9. Roadmap
 
-- ~~**适配器层**~~ 已完成：MCP（批次型）与 HTTP（任务型）两类协议驱动，
-  平台型执行体和 CLI 型走同一个 `fleet_dispatch`。
-- **交互式 TUI 适配器**：给只提供全屏界面的 CLI 用（打字 + 抓窗格），作为最后手段。
-- **共享记忆**：把 `runs/<id>/` 的简报与结论按 `goal` 聚合成事实图（标题/摘要/证据三级），
-  先别急着上数据库。
-- **UI 面板**：实时看槽位、日志、一键停。
+- ~~**Adapter layer**~~ done: MCP (batch-style) and HTTP (task-style) protocol drivers, so
+  platform-style executors go through the same `fleet_dispatch` as CLIs.
+- **Interactive TUI adapter**: for CLIs that only offer a full-screen interface (type + scrape), as a
+  last resort.
+- **Shared memory**: aggregate `runs/<id>/` briefs and conclusions per `goal` into a fact graph
+  (title/summary/evidence) — no database yet.
+- **UI panel**: live slots, logs, one-click stop.
 
-## 10. 安全边界
+## 10. Security boundary
 
-- 派出去的是**真实进程**，工作目录默认是当前会话工作区；`brief.md` 写明"破坏性动作先停下来说明"。
-- worker 只拿到简报文本，不继承 dsh 的凭据；它自己的登录态由各自 CLI / 平台管。
-- 模型侧被要求：汇报前必须读回日志，日志里没有的结论不许写。
-- 插件不改任何执行体的命令与凭据 —— 那是配置，不是对话能改的东西。
-- 对生产系统动手前，先用 `fleet_agents probe` 确认"派出去的是谁、会花多少时间、能碰到什么"。
+- What gets dispatched are **real processes**; the working directory defaults to the current session
+  workspace, and `brief.md` states that destructive actions must stop and ask first.
+- A worker only receives the brief text; it does not inherit dsh credentials. Its own login state is
+  managed by its CLI or platform.
+- The model side is instructed to read logs back before reporting, and never to state a conclusion the
+  logs do not support.
+- The plugin never changes an executor's command or credentials — those are configuration, not
+  something a conversation can edit.
+- Before touching a production system, use `fleet_agents probe` to establish who is being dispatched,
+  how long it may take, and what it can reach.
 
-## 免责声明 / Disclaimer
+## Disclaimer
 
-**中文**
+This plugin only *schedules* external executors. It provides no offensive capability and ships no
+payload aimed at any particular target.
 
-1. **用途限定**：本插件用于把任务派发给外部执行体并监管其运行。它只做**调度**，不产生攻击能力，
-   也不内置任何针对特定目标的载荷。请在**你自己拥有的系统**、或**已获得明确书面授权**的目标上使用。
-2. **合规责任**：使用本插件进行的任何扫描、探测、利用、数据访问等行为，其合法性由**使用者本人**
-   承担全部责任。严禁用于未授权入侵、数据窃取、破坏系统、规避监管等用途。
-3. **外部执行体不受控**：被执行体（CLI、MCP 平台、REST 平台）产出的内容、执行的命令、消耗的算力
-   与费用，均由使用者自行配置与承担。插件会明确标注"退出码不可信"与 `suspect` 状态，
-   但**不保证**能识别所有失败形态。
-4. **输出不可信**：worker 的日志与结论属于外部输入，可能包含错误、幻觉或注入内容。
-   插件要求模型读回真实输出后再汇报，但使用者仍需自行核验关键结论。
-5. **凭据**：`secrets.json` 与各执行体的登录态由使用者自行管理与保护，仓库内不含任何凭据。
-6. **无担保**：本软件按 MIT 协议"按原样"提供，不附带任何明示或暗示的担保；
-   因使用本软件造成的任何直接或间接损失（包括但不限于数据丢失、服务中断、法律纠纷、云费用），
-   作者与贡献者不承担责任。
-7. **终止即生效**：若你不接受上述任一条款，请不要安装或使用本插件。
-
-**English (short — full version: [README.en.md](./README.en.md))**
-
-This plugin only *schedules* external executors; it grants no offensive capability. Use it solely on
-systems you own or for which you hold explicit written authorization. You are fully responsible for
-the legality of every action your workers take, for the credentials you configure, and for reviewing
-their output — worker output is untrusted input. Provided "as is" under MIT, without warranty of any
-kind; the authors accept no liability for any damages arising from its use. If you do not accept these
-terms, do not install or use this software.
+1. **Scope of use** — use it on systems you own, or targets for which you hold explicit written
+   authorization.
+2. **Compliance** — you are solely responsible for the legality of every scan, probe, exploitation
+   attempt or data access carried out through this plugin. Use for unauthorized intrusion, data theft,
+   sabotage or regulatory evasion is prohibited.
+3. **Executors are outside our control** — the content produced, commands executed, compute consumed
+   and costs incurred by executors (CLI, MCP platforms, REST platforms) are configured and borne by
+   you. The plugin flags unreliable exit codes and `suspect` runs, but **cannot** recognise every
+   failure mode.
+4. **Output is untrusted** — worker logs and conclusions are external input and may contain errors,
+   hallucinations or injected content. The plugin requires the model to read real output before
+   reporting, but you should still verify key conclusions yourself.
+5. **Credentials** — `secrets.json` and each executor's login state are yours to manage and protect;
+   this repository contains no credentials.
+6. **No warranty** — provided "as is" under the MIT license, without warranty of any kind, express or
+   implied. The authors and contributors accept no liability for any direct or indirect damages
+   (including but not limited to data loss, service interruption, legal disputes or cloud costs)
+   arising from use of this software.
+7. **Acceptance** — if you do not accept any of the above, do not install or use this plugin.
